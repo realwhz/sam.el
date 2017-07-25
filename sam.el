@@ -1,5 +1,6 @@
 ;;; sam.el -- emulate the sam text editor                    -*- Emacs-Lisp -*-
 ;;; Copyright (C) 1993 Rick Sladkey <jrs@world.std.com>
+;;; Copyright (C) 2017 Hongzheng Wang <wanghz@gmail.com>
 
 ;; This file is not part of Emacs but is distributed under
 ;; the same conditions as Emacs.
@@ -20,7 +21,7 @@
 ;; Emulate the sam text editor Using Emacs|
 ;; 11-Dec-1993|0.5|~/modes/sam.el.Z|
 
-(defconst sam-version "sam v0.5 - 93-12-11")
+(defconst sam-version "sam v0.6 - 07-24-2017")
 
 ;; Problems or Omissions:
 
@@ -36,15 +37,13 @@
 ;; gracefully handle empty or missing editing buffer
 ;; syntax errors cause unclearable in progress commands
 
+;; Recent changes by Hongzheng Wang:
+
+;; Removed the dedicated sam command buffer and instead use it in Acme
+;; way, i.e., provide a `Edit' command to issue Sam commands.
+
 
 ;;; Variables and keymaps.
-
-(defvar sam-command-mode-map nil
-  "Keymap used in sam command mode.")
-(if sam-command-mode-map
-    ()
-  (setq sam-command-mode-map (make-sparse-keymap))
-  (define-key sam-command-mode-map "\r" 'sam-eval-last-command))
 
 (defvar sam-command-assoc
   '(;; Text commands
@@ -102,9 +101,6 @@
     (sam-semi . 1))
   "Association list used to look up the precedence of sam address operators.")
 
-(defvar sam-command-buffer nil
-  "The name of the buffer used to issue sam commands.")
-
 (defvar sam-edit-buffer nil
   "The name of the buffer currently being edited by sam.")
 
@@ -120,6 +116,10 @@
 (defvar sam-reference nil
   "The address mark for each sam editing buffer.")
 (make-variable-buffer-local 'sam-reference)
+
+(defvar sam-current-dot nil
+  "The dot in current buffer.")
+(make-variable-buffer-local 'sam-current-dot)
 
 (defvar sam-please-go-away nil
   "Non-nil means sam is not wanted anymore.")
@@ -145,14 +145,8 @@
 
 ;;; User-visible.
 
-(defvar sam-command-mode-hook nil
-  "*Hooks to run when sam command mode is started.")
-
 (defvar sam-edit-mode-hook nil
   "*Hooks to run when sam edit mode is started.")
-
-(defvar sam-command-buffer-name "~~sam~~"
-  "*Name of the buffer used to issue sam commands.")
 
 (defvar sam-case-fold-search nil
   "*Non-nil if searches should ignore case.")
@@ -164,43 +158,21 @@
 ;;; Buffer mode support functions.
 
 ;;;###autoload
-(defun sam ()
-  "Edit the current buffer using the sam text editor emulation package."
-  (interactive)
-  (setq sam-please-go-away nil)
-  (save-excursion
-    (set-buffer (setq sam-command-buffer
-		      (get-buffer-create sam-command-buffer-name)))
-    (or (eq major-mode 'sam-command-mode)
-	(sam-command-mode)))
-  (sam-edit-mode)
-  (pop-to-buffer sam-command-buffer))
 
-(defun sam-command-mode ()
-  "Major mode for the sam text editor command language buffer."
-  (interactive)
-  (kill-all-local-variables)
-  (use-local-map sam-command-mode-map)
-  (setq major-mode 'sam-command-mode
-	mode-name "Sam-Command")
-  (run-hooks 'sam-command-mode-hook))
-
-(defun sam-edit-mode ()
+(define-minor-mode sam-edit-mode ()
   "Make the current buffer be the buffer affected by sam commands."
-  (interactive)
+  nil nil nil
   (and sam-edit-buffer
        (sam-leave-edit-mode))
   (setq sam-edit-buffer (current-buffer))
   (set (make-local-variable 'sam-edit-mode) t)
   (save-excursion
-    (set-buffer sam-command-buffer)
     (set (make-local-variable 'sam-edit-buffer-name)
 	 (buffer-name sam-edit-buffer)))
   (run-hooks 'sam-edit-mode-hook))
 
 (defun sam-leave-edit-mode ()
   (save-excursion
-    (set-buffer sam-command-buffer)
     (set (make-local-variable 'sam-edit-buffer-name) nil))
   (save-excursion
     (and sam-edit-buffer
@@ -239,9 +211,9 @@
 (put 'sam-command 'lisp-indent-function 1)
 
 (defmacro sam-get-dot ()
-  '(let ((mark (or (marker-position (mark-marker)) (point)))
-	 (point (point)))
-     (cons (min mark point) (max mark point))))
+  '(if (use-region-p)
+       (sam-set-dot (region-beginning) (region-end))
+     (sam-set-dot)))
 
 (defmacro sam-set-dot (&optional beg end)
   (or beg
@@ -250,10 +222,11 @@
       (setq end '(point)))
   (` (progn
        (set-mark (, beg))
-       (goto-char  (, end)))))
+       (goto-char (, end))
+       (setq sam-current-dot (cons (, beg) (, end))))))
 
 (defmacro sam-highlight-dot ()
-  '(setq mark-active (not (eq (marker-position (mark-marker)) (point)))))
+  '(setq mark-active (not (eq (mark) (point)))))
 
 
 ;;; Text commands.
@@ -262,20 +235,23 @@
   (sam-command addr)
   (goto-char (sam-addr-end addr))
   (insert-before-markers str)
-  (sam-set-dot (sam-addr-end addr)))
+  (sam-set-dot (sam-addr-end addr))
+  (sam-highlight-dot))
 
 (defun sam-change (addr str)
   (sam-command addr)
   (kill-region (sam-addr-beg addr) (sam-addr-end addr))
   (goto-char (sam-addr-beg addr))
   (insert-before-markers str)
-  (sam-set-dot (sam-addr-beg addr)))
+  (sam-set-dot (sam-addr-beg addr))
+  (sam-highlight-dot))
 
 (defun sam-insert (addr str)
   (sam-command addr)
   (goto-char (sam-addr-beg addr))
   (insert-before-markers str)
-  (sam-set-dot (sam-addr-beg addr)))
+  (sam-set-dot (sam-addr-beg addr))
+  (sam-highlight-dot))
 
 (defun sam-delete (addr)
   (sam-command addr)
@@ -342,9 +318,7 @@
 (defun sam-print (addr)
   (sam-command addr)
   (sam-set-dot (sam-addr-beg addr) (sam-addr-end addr))
-  (let ((text (buffer-substring (sam-addr-beg addr) (sam-addr-end addr))))
-    (set-buffer sam-command-buffer)
-    (insert-before-markers text)))
+  (sam-highlight-dot))
 
 (defun sam-value (addr char-addr-only)
   (set-buffer (sam-addr-buffer addr))
@@ -379,8 +353,7 @@
 		    (t
 		     (format "%d,%d; #%d,#%d\n"
 			     mark-line point-line mark point)))))))
-    (set-buffer sam-command-buffer)
-    (insert-before-markers text)))
+    (message text)))
 
 
 ;;; File commands.
@@ -414,11 +387,10 @@
 (defun sam-buffer-menu ()
   (let ((buffer-list (sam-buffer-list))
 	buffer)
-    (set-buffer sam-command-buffer)
     (while buffer-list
       (setq buffer (car buffer-list)
 	    buffer-list (cdr buffer-list))
-      (insert-before-markers (sam-buffer-menu-line buffer)))))
+      (message (sam-buffer-menu-line buffer)))))
 
 (defun sam-buffer-list ()
   (let ((buffer-list (buffer-list))
@@ -428,7 +400,6 @@
       (setq buffer (car buffer-list)
 	    buffer-list (cdr buffer-list))
       (and (not (string-match "\\`[ *]" (buffer-name buffer)))
-	   (not (string= (buffer-name buffer) sam-command-buffer-name))
 	   (save-excursion
 	     (set-buffer buffer)
 	     (not (eq major-mode 'dired-mode)))
@@ -477,8 +448,7 @@
   (pop-to-buffer sam-edit-buffer)
   (sam-leave-edit-mode)
   (find-alternate-file filename)
-  (sam-edit-mode)
-  (pop-to-buffer sam-command-buffer))
+  (sam-edit-mode))
 
 (defun sam-read (addr filename)
   (and (string= filename "")
@@ -499,60 +469,43 @@
     (write-region (sam-addr-beg addr) (sam-addr-end addr) filename))
   (and (string= filename "")
        (setq filename (buffer-name sam-edit-buffer)))
-  (set-buffer sam-command-buffer)
-  (insert-before-markers (format "%s: #%d\n"
-				 filename (- (sam-addr-end addr)
-					     (sam-addr-beg addr)))))
+  (message (format "%s: #%d\n"
+		   filename (- (sam-addr-end addr)
+			       (sam-addr-beg addr)))))
 
 (defun sam-file (filename)
   (or (string= filename "")
       (save-excursion
 	(set-buffer sam-edit-buffer)
 	(set-visited-file-name filename)))
-  (set-buffer sam-command-buffer)
-  (insert-before-markers (sam-buffer-menu-line sam-edit-buffer)))
+  (message (sam-buffer-menu-line sam-edit-buffer)))
 
 (defun sam-pipe-in (addr command)
   (setq command (sam-last-shell-command command))
   (sam-command addr)
   (kill-region (sam-addr-beg addr) (sam-addr-end addr))
-  (shell-command-on-region (sam-addr-beg addr) (sam-addr-beg addr)
-			   command t)
-  (sam-set-dot (sam-addr-beg addr)))
+  (shell-command command t)
+  (sam-set-dot (sam-addr-beg addr) (mark))
+  (sam-highlight-dot))
 
 (defun sam-pipe-out (addr command)
   (setq command (sam-last-shell-command command))
-  (let ((text (save-excursion
-		(set-buffer (sam-addr-buffer addr))
-		(buffer-substring (sam-addr-beg addr) (sam-addr-end addr)))))
-    (save-excursion
-      (set-buffer (get-buffer-create " *shell*"))
-      (erase-buffer)
-      (insert-before-markers text)
-      (shell-command-on-region (point-min) (point-max) command t)
-      (setq text (buffer-substring (point-min) (point-max)))
-      (erase-buffer))
-    (set-buffer sam-command-buffer)
-    (insert-before-markers text)
-    (insert-before-markers "!\n")))
+  (sam-command addr)
+  (shell-command-on-region (sam-addr-beg addr) (sam-addr-end addr) command))
 
 (defun sam-pipe-thru (addr command)
   (setq command (sam-last-shell-command command))
   (sam-command addr)
   (shell-command-on-region (sam-addr-beg addr) (sam-addr-end addr)
-			   command t)
-  (sam-set-dot (sam-addr-beg addr)))
+			   command t t)
+  (sam-set-dot (sam-addr-beg addr) (mark))
+  (sam-highlight-dot))
 
 (defun sam-shell (command)
   (setq command (sam-last-shell-command command))
-  (set-buffer sam-command-buffer)
-  (let ((old-point-max (point-max)))
-    (shell-command command t)
-    (forward-char (- (point-max) old-point-max))
-    (insert-before-markers "!\n")))
+  (shell-command command))
 
 (defun sam-cd (directory)
-  (set-buffer sam-command-buffer)
   (and (string= directory "")
        (setq directory "~/"))
   (cd directory)
@@ -667,9 +620,6 @@
 
 ;;; Misc commands.
 
-(defun sam-quit ()
-  (setq sam-please-go-away t))
-
 (defun sam-set-reference (addr)
   (set-buffer (sam-addr-buffer addr))
   (setq sam-reference addr))
@@ -687,14 +637,8 @@
        (let ((new-addr (sam-plus addr 0)))
 	 (and (equal addr new-addr)
 	      (setq new-addr (sam-plus addr 1)))
-	 (setq addr new-addr)
-	 (let ((text (buffer-substring (sam-addr-beg addr)
-				       (sam-addr-end addr))))
-	   (save-excursion
-	     (set-buffer sam-command-buffer)
-	     (insert text)))))
-  (sam-set-dot (sam-addr-beg addr) (sam-addr-end addr))
-  (sam-print-addr addr))
+	 (setq addr new-addr)))
+  (sam-set-dot (sam-addr-beg addr) (sam-addr-end addr)))
 
 (defun sam-print-addr (addr)
   (let ((beg (1- (sam-addr-beg addr)))
@@ -1256,8 +1200,7 @@
 
 (defun sam-eval-last-command ()
   (interactive)
-  (let* ((str (buffer-substring (progn (beginning-of-line) (point))
-				(progn (end-of-line) (point))))
+  (let* ((str (read-from-minibuffer "Edit: "))
 	 (cmd (condition-case nil
 		  (let ((case-fold-search nil))
 		    (setq sam-command-in-progress
@@ -1266,22 +1209,16 @@
 		(error
 		 (setq sam-command-in-progress nil)
 		 nil))))
-    (end-of-line)
-    (or (and cmd
-	     (string= str ""))
-	(if (eobp)
-	    (insert-before-markers "\n")
-	  (forward-char 1)))
+
     (if cmd
 	(progn
 	  (setq sam-command-in-progress nil)
 	  (sam-eval-command cmd)
-	  (or (bolp)
-	      (insert-before-markers "\n"))
 	  (and sam-please-go-away
 	       (progn
-		 (sam-leave-edit-mode)
-		 (kill-buffer sam-command-buffer))))
+		 (sam-leave-edit-mode))))
       (setq sam-command-in-progress (concat sam-command-in-progress "\n")))))
 
-;;; End of sam.el.
+
+
+(provide 'sam)
