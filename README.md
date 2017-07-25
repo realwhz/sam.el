@@ -1,3 +1,17 @@
+Recent change:
+
+Acme supports a built-in Edit command which accepts Sam editing
+commands.  I modified sam.el to following a similar approach so that
+Emacs user can enjoy Sam capability without issuing a standalone
+`~~~Sam~~~' window.
+
+To enable this feature for a particular buffer, please enable
+sam-edit-mode and then issue command `sam-eval-last-command'.  Binding
+it to a key would be useful:
+(global-set-key (kbd "C-c e") 'sam-eval-last-command)
+
+------------------------------------------------------------------------------
+
 This is an emulation of Rob Pike's Sam text editor in Emacs developed by Rick
 Sladkey.  I happened to get this copy long time ago and I realized it is very
 difficult to find this software nowadays on Internet.  In order to avoid
