@@ -211,9 +211,12 @@
 (put 'sam-command 'lisp-indent-function 1)
 
 (defmacro sam-get-dot ()
-  '(if (use-region-p)
-       (setq sam-dot (cons (region-beginning) (region-end)))
-     (setq sam-dot (cons (point) (point)))))
+  '(cond ((use-region-p)
+	  (setq sam-dot (cons (region-beginning) (region-end))))
+	 ((not (null (mark)))
+	  (setq sam-dot (cons (min (point) (mark)) (max (point) (mark)))))
+	 (t
+	  (setq sam-dot (cons (point) (point))))))
 
 (defmacro sam-set-dot (&optional beg end)
   (or beg
