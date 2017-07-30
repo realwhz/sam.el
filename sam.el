@@ -159,9 +159,8 @@
 
 ;;;###autoload
 
-(define-minor-mode sam-edit-mode ()
+(defun sam-edit-mode ()
   "Make the current buffer be the buffer affected by sam commands."
-  nil nil nil
   (and sam-edit-buffer
        (sam-leave-edit-mode))
   (setq sam-edit-buffer (current-buffer))
@@ -211,12 +210,9 @@
 (put 'sam-command 'lisp-indent-function 1)
 
 (defmacro sam-get-dot ()
-  '(cond ((use-region-p)
-	  (setq sam-dot (cons (region-beginning) (region-end))))
-	 ((not (null (mark)))
-	  (setq sam-dot (cons (min (point) (mark)) (max (point) (mark)))))
-	 (t
-	  (setq sam-dot (cons (point) (point))))))
+  '(if (use-region-p)
+       (setq sam-dot (cons (region-beginning) (region-end)))
+     (setq sam-dot (cons (point) (point)))))
 
 (defmacro sam-set-dot (&optional beg end)
   (or beg
@@ -238,23 +234,20 @@
   (sam-command addr)
   (goto-char (sam-addr-end addr))
   (insert-before-markers str)
-  (sam-set-dot (sam-addr-end addr))
-  (sam-highlight-dot))
+  (sam-set-dot (sam-addr-end addr)))
 
 (defun sam-change (addr str)
   (sam-command addr)
   (kill-region (sam-addr-beg addr) (sam-addr-end addr))
   (goto-char (sam-addr-beg addr))
   (insert-before-markers str)
-  (sam-set-dot (sam-addr-beg addr))
-  (sam-highlight-dot))
+  (sam-set-dot (sam-addr-beg addr)))
 
 (defun sam-insert (addr str)
   (sam-command addr)
   (goto-char (sam-addr-beg addr))
   (insert-before-markers str)
-  (sam-set-dot (sam-addr-beg addr))
-  (sam-highlight-dot))
+  (sam-set-dot (sam-addr-beg addr)))
 
 (defun sam-delete (addr)
   (sam-command addr)
@@ -320,8 +313,7 @@
 
 (defun sam-print (addr)
   (sam-command addr)
-  (sam-set-dot (sam-addr-beg addr) (sam-addr-end addr))
-  (sam-highlight-dot))
+  (sam-set-dot (sam-addr-beg addr) (sam-addr-end addr)))
 
 (defun sam-value (addr char-addr-only)
   (set-buffer (sam-addr-buffer addr))
@@ -488,8 +480,7 @@
   (sam-command addr)
   (kill-region (sam-addr-beg addr) (sam-addr-end addr))
   (shell-command command t)
-  (sam-set-dot (sam-addr-beg addr) (mark))
-  (sam-highlight-dot))
+  (sam-set-dot (mark) (sam-addr-beg addr)))
 
 (defun sam-pipe-out (addr command)
   (setq command (sam-last-shell-command command))
@@ -501,8 +492,7 @@
   (sam-command addr)
   (shell-command-on-region (sam-addr-beg addr) (sam-addr-end addr)
 			   command t t)
-  (sam-set-dot (sam-addr-beg addr) (mark))
-  (sam-highlight-dot))
+  (sam-set-dot (mark) (sam-addr-beg addr)))
 
 (defun sam-shell (command)
   (setq command (sam-last-shell-command command))
@@ -625,7 +615,9 @@
 
 (defun sam-set-reference (addr)
   (set-buffer (sam-addr-buffer addr))
-  (setq sam-reference addr))
+  (if (use-region-p)
+      (setq sam-reference addr)
+    (setq sam-reference (sam-make-addr (sam-addr-buffer addr) (point) (point)))))
 
 (defun sam-undo (addr n)
   (sam-command addr)
@@ -1215,6 +1207,7 @@
 
     (if cmd
 	(progn
+	  (sam-edit-mode)
 	  (setq sam-command-in-progress nil)
 	  (sam-eval-command cmd)
 	  (and sam-please-go-away
