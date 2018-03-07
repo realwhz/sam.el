@@ -11,6 +11,28 @@ it to a key would be useful:
 
 `(global-set-key (kbd "C-c e") 'sam-eval-last-command)`
 
+Some examples:
+```
+20                            go to line 20
+-/^/+#10                      go to column 10
+0/hello/                      search for hello from the beginning
+-/hello/                      search for hello backward
+$-/hello/                     search for the last hello
+,x/\n/d                       join all lines without spaces
++-                            expand current dot into whole line
+,x/PATTERN/c/REPLACEMENT/     replace PATTERNs with REPLACEMENTs
+,x a/\n/                      double all line spaces
+x/^/ a/ /                     indent selected block with space/tab
+x/^ /d                        remove indentation in selected block
+< echo -e -n "\x41"           insert ascii code 0x41
+,> wc -l                      cound lines
+0 < date                      insert date at the beginning
+,|sort                        sort the whole file
+,x/TODAY/ < date              replace TODAY with real date
+,x g/^\n$/d                   remove empty lines
+,x/[a-zA-Z_][a-zA-Z_0-9]*/ g/n/ v/../ c/num/   replace variable n with num
+```
+
 ------------------------------------------------------------------------------
 
 This is an emulation of Rob Pike's Sam text editor in Emacs developed by Rick
